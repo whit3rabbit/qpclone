@@ -1,5 +1,7 @@
 # qpclone
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/whit3rabbit/qpclone/blob/main/Qwen3_TTS_Voice_Cloning_to_PIPER.ipynb)
+
 Clone any voice from a 3-5 second audio sample into a fully offline Piper TTS model.
 
 This is a single Google Colab notebook that chains Qwen3-TTS (voice cloning) into Piper (lightweight VITS) to produce a deployable `.onnx` model you can run on a Raspberry Pi, Home Assistant, or any device that supports [Piper TTS](https://github.com/rhasspy/piper).
