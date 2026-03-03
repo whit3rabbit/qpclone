@@ -73,7 +73,7 @@ Defined in Cells 1 and 8-10 as Colab form fields:
 - `PROJECT_NAME` / `LANGUAGE` / `DRIVE_BASE_DIR` -- project identity
 - `NUM_SAMPLES` (100-3000, default 1000) -- synthetic training samples to generate
 - `PIPER_MAX_EPOCHS` (100-5000, default 1000) -- training duration
-- `PIPER_BATCH_SIZE` (4-64, default 16)
+- `PIPER_BATCH_SIZE` (4-64, default 8)
 - `QWEN_MODEL_ID` -- 1.7B-Base (~8GB VRAM) or 0.6B-Base (~4GB VRAM)
 - `OUTPUT_SAMPLE_RATE` -- Qwen outputs 24kHz, resampled to 22050Hz for Piper
 - `TEXT_DATASET_ID` -- Hugging Face dataset for transcripts (default: `MikhailT/lj-speech`)
@@ -119,4 +119,4 @@ Defined in Cells 1 and 8-10 as Colab form fields:
 - Cell 22 uses a 3-tier checkpoint priority: (1) resume interrupted run, (2) fine-tune from pretrained checkpoint, (3) train from scratch. Fine-tuning is the default first-run path and requires far fewer samples than training from scratch.
 - Cell 12 auto-transcribes reference audio with Qwen3-ASR-0.6B when `REF_TEXT` is blank. The `ref_text_source` field in `state["ref_audio"]` tracks origin: `"manual"` (user typed it), `"asr"` (auto-transcribed), `"pending"` (not yet transcribed), or `"none"` (ASR returned empty). On resume, if `ref_text_source == "asr"`, the saved transcript is reused without reloading ASR. Uploading new reference audio in Cell 6 resets `ref_text_source` to `"pending"`, forcing ASR to re-run.
 - Qwen3-ASR-0.6B (~2-4GB VRAM in bfloat16) is fully unloaded (del + gc.collect + torch.cuda.empty_cache) before Qwen3-TTS loads. No model coexistence needed.
-- Default training precision is fp16 (`PIPER_PRECISION = 16`). This halves VRAM usage vs fp32, allowing batch size 16 on a T4.
+- Default training precision is fp16 (`PIPER_PRECISION = 16`). This halves VRAM usage vs fp32. Default batch size is 8 for T4 reliability (batch 16 OOMs due to CUDA context overhead).
