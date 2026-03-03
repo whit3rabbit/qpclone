@@ -59,7 +59,7 @@ The first 6 cells are the interactive setup (user changes project name, grants D
 | 16 | Markdown: Piper section divider |
 | 17 | Generate training samples (WAVs + metadata.csv). Audio is peak-normalized to 0.95 and saved as 16-bit PCM. |
 | 18 | Clone Piper repo and fix dependencies for Python 3.12+ |
-| 19 | Download pretrained Piper checkpoint from `rhasspy/piper-checkpoints` on HuggingFace (auto-matches language) |
+| 19 | Download pretrained Piper checkpoint from `rhasspy/piper-checkpoints` dataset repo on HuggingFace (auto-matches language). Must use `repo_type="dataset"` for HF Hub API calls. |
 | 20 | Preprocess dataset for Piper training |
 | 21 | Free GPU memory (unload Qwen3-TTS) |
 | 22 | Train/resume Piper VITS model (3-tier checkpoint: resume > fine-tune > scratch) |
@@ -73,11 +73,11 @@ Defined in Cells 1 and 8-10 as Colab form fields:
 - `PROJECT_NAME` / `LANGUAGE` / `DRIVE_BASE_DIR` -- project identity
 - `NUM_SAMPLES` (100-3000, default 1000) -- synthetic training samples to generate
 - `PIPER_MAX_EPOCHS` (100-5000, default 1000) -- training duration
-- `PIPER_BATCH_SIZE` (4-64, default 8)
+- `PIPER_BATCH_SIZE` (4-64, default 16)
 - `QWEN_MODEL_ID` -- 1.7B-Base (~8GB VRAM) or 0.6B-Base (~4GB VRAM)
 - `OUTPUT_SAMPLE_RATE` -- Qwen outputs 24kHz, resampled to 22050Hz for Piper
 - `TEXT_DATASET_ID` -- Hugging Face dataset for transcripts (default: `MikhailT/lj-speech`)
-- `PIPER_PRETRAINED_CHECKPOINT` -- path within `rhasspy/piper-checkpoints` HF repo (default: `en/en_US/lessac/medium`). Set to `none` to train from scratch.
+- `PIPER_PRETRAINED_CHECKPOINT` -- path within `rhasspy/piper-checkpoints` HF **dataset** repo (default: `en/en_US/lessac/medium`). Set to `none` to train from scratch.
 
 ## Runtime Directory Structure (Google Drive)
 
@@ -119,3 +119,4 @@ Defined in Cells 1 and 8-10 as Colab form fields:
 - Cell 22 uses a 3-tier checkpoint priority: (1) resume interrupted run, (2) fine-tune from pretrained checkpoint, (3) train from scratch. Fine-tuning is the default first-run path and requires far fewer samples than training from scratch.
 - Cell 12 auto-transcribes reference audio with Qwen3-ASR-0.6B when `REF_TEXT` is blank. The `ref_text_source` field in `state["ref_audio"]` tracks origin: `"manual"` (user typed it), `"asr"` (auto-transcribed), `"pending"` (not yet transcribed), or `"none"` (ASR returned empty). On resume, if `ref_text_source == "asr"`, the saved transcript is reused without reloading ASR. Uploading new reference audio in Cell 6 resets `ref_text_source` to `"pending"`, forcing ASR to re-run.
 - Qwen3-ASR-0.6B (~2-4GB VRAM in bfloat16) is fully unloaded (del + gc.collect + torch.cuda.empty_cache) before Qwen3-TTS loads. No model coexistence needed.
+- Default training precision is fp16 (`PIPER_PRECISION = 16`). This halves VRAM usage vs fp32, allowing batch size 16 on a T4.
