@@ -14,7 +14,10 @@ Designed to run in Google Colab with a T4 GPU. All persistent state lives on Goo
 Reference Audio (3-5s WAV/MP3)
     |
     v
-Qwen3-TTS voice feature extraction (xvector + ref audio)
+Qwen3-ASR auto-transcription (if REF_TEXT blank) -- load 0.6B, transcribe, unload
+    |
+    v
+Qwen3-TTS voice feature extraction (xvector + ref audio + transcript)
     |
     v
 Qwen3-TTS synthesis -- generates ~1000 WAV samples using LJ Speech transcripts
@@ -29,7 +32,7 @@ Piper VITS training -- fine-tune for 1000 epochs (default)
 ONNX export -> deployable offline TTS model
 ```
 
-GPU memory is managed explicitly: Qwen3-TTS is unloaded (Cell 20) before Piper training starts to avoid OOM.
+GPU memory is managed explicitly: Qwen3-ASR is loaded and unloaded (Cell 12) before Qwen3-TTS loads (Cell 13). Qwen3-TTS is unloaded (Cell 21) before Piper training starts. No models coexist in VRAM.
 
 ## Notebook Cell Map
 
@@ -49,18 +52,19 @@ The first 6 cells are the interactive setup (user changes project name, grants D
 | 9 | Piper training settings (epochs, batch size, pretrained checkpoint) |
 | 10 | Advanced settings (model size, device, precision, sample rate) |
 | 11 | Save full config to project state |
-| 12 | Load Qwen3-TTS model |
-| 13 | Pre-compute voice clone prompt (speaker features extracted once) |
-| 14 | Load text dataset from Hugging Face |
-| 15 | Markdown: Piper section divider |
-| 16 | Generate training samples (WAVs + metadata.csv). Audio is peak-normalized to 0.95 and saved as 16-bit PCM. |
-| 17 | Clone Piper repo and fix dependencies for Python 3.12+ |
-| 18 | Download pretrained Piper checkpoint from `rhasspy/piper-checkpoints` on HuggingFace (auto-matches language) |
-| 19 | Preprocess dataset for Piper training |
-| 20 | Free GPU memory (unload Qwen3-TTS) |
-| 21 | Train/resume Piper VITS model (3-tier checkpoint: resume > fine-tune > scratch) |
-| 22 | Project status summary |
-| 23 | Export to ONNX and test synthesis |
+| 12 | Auto-transcribe reference audio with Qwen3-ASR (skipped if REF_TEXT provided or already transcribed) |
+| 13 | Load Qwen3-TTS model |
+| 14 | Pre-compute voice clone prompt (speaker features extracted once) |
+| 15 | Load text dataset from Hugging Face |
+| 16 | Markdown: Piper section divider |
+| 17 | Generate training samples (WAVs + metadata.csv). Audio is peak-normalized to 0.95 and saved as 16-bit PCM. |
+| 18 | Clone Piper repo and fix dependencies for Python 3.12+ |
+| 19 | Download pretrained Piper checkpoint from `rhasspy/piper-checkpoints` on HuggingFace (auto-matches language) |
+| 20 | Preprocess dataset for Piper training |
+| 21 | Free GPU memory (unload Qwen3-TTS) |
+| 22 | Train/resume Piper VITS model (3-tier checkpoint: resume > fine-tune > scratch) |
+| 23 | Project status summary |
+| 24 | Export to ONNX and test synthesis |
 
 ## Key Configuration Parameters
 
@@ -99,6 +103,7 @@ Defined in Cells 1 and 8-10 as Colab form fields:
 ## Key Dependencies
 
 - `qwen-tts` -- Qwen3-TTS voice cloning model
+- `qwen-asr` -- Qwen3-ASR automatic speech recognition (used for auto-transcribing reference audio)
 - `piper-phonemize` (or `piper-phonemize-cross` for Python 3.12+) -- phoneme processing
 - `pytorch-lightning==1.9.5` -- pinned for Piper compatibility (uses old import path)
 - `espeak-ng` -- system package for phonemization
@@ -106,9 +111,11 @@ Defined in Cells 1 and 8-10 as Colab form fields:
 
 ## Notes for Editing
 
-- The Piper repo (rhasspy/piper) was archived Oct 2025. Cell 17 contains specific dependency pins and compatibility shims for Python 3.12+ that are fragile -- understand them before modifying.
-- `project.json` state file enables resume across Colab disconnects. Generation (Cell 16) and training (Cell 21) both support resumption via this state.
+- The Piper repo (rhasspy/piper) was archived Oct 2025. Cell 18 contains specific dependency pins and compatibility shims for Python 3.12+ that are fragile -- understand them before modifying.
+- `project.json` state file enables resume across Colab disconnects. Generation (Cell 17) and training (Cell 22) both support resumption via this state.
 - Project state is initialized in two phases: Cell 5 creates the minimal state (before audio upload), Cell 11 saves full config (after all settings cells). This split allows the interactive cells to run before the user needs to touch config defaults.
 - The `@title` and `@param` annotations are Colab form syntax -- they generate the UI widgets. Changing parameter names or types affects the Colab form rendering.
-- Audio resampling from 24kHz (Qwen output) to 22050Hz (Piper input) happens in Cell 16 during generation. Audio is peak-normalized to 0.95 and written as 16-bit PCM. Mismatched sample rates or formats will produce poor training results.
-- Cell 21 uses a 3-tier checkpoint priority: (1) resume interrupted run, (2) fine-tune from pretrained checkpoint, (3) train from scratch. Fine-tuning is the default first-run path and requires far fewer samples than training from scratch.
+- Audio resampling from 24kHz (Qwen output) to 22050Hz (Piper input) happens in Cell 17 during generation. Audio is peak-normalized to 0.95 and written as 16-bit PCM. Mismatched sample rates or formats will produce poor training results.
+- Cell 22 uses a 3-tier checkpoint priority: (1) resume interrupted run, (2) fine-tune from pretrained checkpoint, (3) train from scratch. Fine-tuning is the default first-run path and requires far fewer samples than training from scratch.
+- Cell 12 auto-transcribes reference audio with Qwen3-ASR-0.6B when `REF_TEXT` is blank. The `ref_text_source` field in `state["ref_audio"]` tracks origin: `"manual"` (user typed it), `"asr"` (auto-transcribed), `"pending"` (not yet transcribed), or `"none"` (ASR returned empty). On resume, if `ref_text_source == "asr"`, the saved transcript is reused without reloading ASR. Uploading new reference audio in Cell 6 resets `ref_text_source` to `"pending"`, forcing ASR to re-run.
+- Qwen3-ASR-0.6B (~2-4GB VRAM in bfloat16) is fully unloaded (del + gc.collect + torch.cuda.empty_cache) before Qwen3-TTS loads. No model coexistence needed.
