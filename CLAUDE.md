@@ -57,7 +57,7 @@ The first 6 cells are the interactive setup (user changes project name, grants D
 | 14 | Pre-compute voice clone prompt (speaker features extracted once) |
 | 15 | Load text dataset from Hugging Face |
 | 16 | Markdown: Piper section divider |
-| 17 | Generate training samples (WAVs + metadata.csv). Audio is peak-normalized to 0.95 and saved as 16-bit PCM. |
+| 17 | Generate training samples (WAVs + metadata.csv). Audio is peak-normalized to 0.95 and saved as 16-bit PCM. Clips exceeding `MAX_DURATION_S` are discarded to prevent OOM during training. |
 | 18 | Clone Piper repo and fix dependencies for Python 3.12+ |
 | 19 | Download pretrained Piper checkpoint from `rhasspy/piper-checkpoints` dataset repo on HuggingFace (auto-matches language). Must use `repo_type="dataset"` for HF Hub API calls. |
 | 20 | Preprocess dataset for Piper training |
@@ -77,6 +77,8 @@ Defined in Cells 1 and 8-10 as Colab form fields:
 - `QWEN_MODEL_ID` -- 1.7B-Base (~8GB VRAM) or 0.6B-Base (~4GB VRAM)
 - `OUTPUT_SAMPLE_RATE` -- Qwen outputs 24kHz, resampled to 22050Hz for Piper
 - `TEXT_DATASET_ID` -- Hugging Face dataset for transcripts (default: `MikhailT/lj-speech`)
+- `MAX_TEXT_CHARS` (50-500, default 150) -- max characters per transcript sent to Qwen. Capped at 150 to keep generated audio in the 3-8s range and avoid OOM from long spectrograms during training.
+- `MAX_DURATION_S` (default 10.0) -- generated audio clips longer than this are discarded. Prevents batch-padding OOM in Piper training.
 - `PIPER_PRETRAINED_CHECKPOINT` -- path within `rhasspy/piper-checkpoints` HF **dataset** repo (default: `en/en_US/lessac/medium`). Set to `none` to train from scratch.
 
 ## Runtime Directory Structure (Google Drive)
@@ -121,4 +123,4 @@ Defined in Cells 1 and 8-10 as Colab form fields:
 - Qwen3-ASR-0.6B (~2-4GB VRAM in bfloat16) is fully unloaded (del + gc.collect + torch.cuda.empty_cache) before Qwen3-TTS loads. No model coexistence needed.
 - Default training precision is fp32 (`PIPER_PRECISION = 32`), matching official Piper docs and all community guides. fp16 is untested for VITS GAN training but remains available in the dropdown. Default batch size is 8, the reliable T4 configuration accounting for Colab kernel overhead (1-2 GB). Batch 12 works on a clean GPU but OOMs on real Colab sessions where background processes consume VRAM (per Piper issues #703 and #189).
 - Training uses `--max-phoneme-ids 300` to drop sentences exceeding 300 phoneme IDs. This caps per-batch peak memory and prevents rare long sentences from causing OOM spikes (per Piper issue #703 and discussion #189). LJ Speech sentences average 70-120 phoneme IDs, so 300 drops almost nothing from the dataset while keeping peak memory well within T4 limits.
-- Cell 22 sets `JAX_PLATFORMS=cpu` to prevent JAX (imported transitively via datasets/transformers) from initializing a CUDA context and wasting 200-400 MB of GPU memory. The existing `XLA_PYTHON_CLIENT_PREALLOCATE=false` in Cell 3 only prevents preallocation but does not prevent JAX from touching the GPU.
+- Cell 22 inlines env vars (`JAX_PLATFORMS=cpu`, `XLA_PYTHON_CLIENT_PREALLOCATE=false`, `TF_FORCE_GPU_ALLOW_GROWTH=true`, `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`) directly in the training command string so they always apply to the subprocess regardless of kernel state. The `os.environ` calls are kept as fallback for any imports that happen before the subprocess. `torch.set_float32_matmul_precision('medium')` is called before training to use Tensor Cores on L4/A100.
