@@ -114,7 +114,7 @@ The notebook never loads two large models simultaneously. Qwen3-ASR is loaded an
 ## Pipeline
 
 <p align="center">
-  <img src="docs/pipeline.svg" alt="Voice cloning pipeline" width="700">
+  <img src="assets/flow.svg" alt="Voice cloning pipeline" width="700">
 </p>
 
 ## Resume support
