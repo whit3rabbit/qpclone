@@ -9,7 +9,7 @@ This is a single Google Colab notebook that chains Qwen3-TTS (voice cloning) int
 ## How it works
 
 1. Upload a short voice clip (3-5 seconds, clean speech, one speaker)
-2. Qwen3-TTS generates ~1000 synthetic training samples in that voice
+2. Qwen3-TTS generates ~1400 synthetic training samples in that voice
 3. A pretrained Piper VITS model is fine-tuned on those samples
 4. You get an ONNX model file that speaks in the cloned voice -- completely offline
 
@@ -50,8 +50,8 @@ All parameters are set via Colab form fields in the first few cells. The default
 |-----------|---------|-------|-------------|
 | `QWEN_MODEL_ID` | `Qwen3-TTS-12Hz-1.7B-Base` | 1.7B or 0.6B | 1.7B produces higher quality but needs ~8 GB VRAM. 0.6B needs ~4 GB. |
 | `DTYPE` | `bfloat16` | bf16/fp16/fp32 | Inference precision for Qwen. bfloat16 is the native training dtype and the best default. |
-| `NUM_SAMPLES` | 1000 | 100-3000 | Number of synthetic training clips to generate. 500-2000 recommended for fine-tuning. |
-| `TEXT_DATASET_ID` | `MikhailT/lj-speech` | any HF dataset | Source of transcripts for generation. LJ Speech has ~13k English sentences. |
+| `NUM_SAMPLES` | 1400 | 100-3000 | Number of synthetic training clips to generate. 500-2000 recommended for fine-tuning. |
+| `TEXT_DATASET_ID` | `daily_dialog` | any HF dataset | Source of transcripts for generation. DailyDialog has ~13k conversations with short, natural dialogue turns. |
 | `MAX_TEXT_CHARS` | 150 | 50-500 | Max characters per transcript sent to Qwen. See [why 150](#why-max_text_chars-150). |
 | `MIN_TEXT_CHARS` | 10 | 1-50 | Minimum characters. Filters out trivially short sentences. |
 | `MAX_DURATION_S` | 10.0 | any | Generated clips longer than this are discarded. See [why 10s](#why-max_duration_s-10). |
@@ -89,11 +89,11 @@ Generated audio is:
 
 ### Why `MAX_TEXT_CHARS` 150
 
-LJ Speech sentences average ~45 characters. The previous default of 250 let Qwen generate audio clips up to 15 seconds long. Piper's VITS training pads every sample in a batch to the length of the longest spectrogram in that batch. A single 15-second clip forces 7 other samples to be zero-padded to the same length, multiplying memory usage across the entire batch. 150 characters keeps most generated clips in the 3-8 second range, which is closer to the LJ Speech distribution (most clips 2-10s) and avoids these padding spikes.
+DailyDialog turns are short conversational utterances, typically 20-80 characters. The previous default of 250 let Qwen generate audio clips up to 15 seconds long. Piper's VITS training pads every sample in a batch to the length of the longest spectrogram in that batch. A single 15-second clip forces 7 other samples to be zero-padded to the same length, multiplying memory usage across the entire batch. 150 characters keeps most generated clips in the 3-8 second range and avoids these padding spikes.
 
 ### Why `MAX_DURATION_S` 10
 
-`--max-phoneme-ids 300` caps text (phoneme) length but does not cap audio length. Short text can still produce long audio because Qwen's generation speed varies with prosody and pauses. The 10-second cap is a safety net that catches the outliers `MAX_TEXT_CHARS` misses. 10 seconds covers 99%+ of LJ Speech clips while keeping peak spectrogram memory within T4/L4 limits at batch size 8.
+`--max-phoneme-ids 300` caps text (phoneme) length but does not cap audio length. Short text can still produce long audio because Qwen's generation speed varies with prosody and pauses. The 10-second cap is a safety net that catches the outliers `MAX_TEXT_CHARS` misses. 10 seconds covers the vast majority of DailyDialog-derived clips while keeping peak spectrogram memory within T4/L4 limits at batch size 8.
 
 ### Why batch size 8
 
@@ -132,7 +132,7 @@ Piper_Qwen_Projects/{project}/
   reference/            # uploaded voice samples
   dataset/
     wavs/               # generated WAV training files
-    metadata.csv        # LJSpeech format metadata
+    metadata.csv        # Piper LJSpeech-format metadata
   piper/
     piper/              # cloned rhasspy/piper repo
     pretrained/         # downloaded pretrained checkpoint

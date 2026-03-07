@@ -47,7 +47,7 @@
   <!-- Text Dataset (side input) -->
   <rect x="580" y="140" width="180" height="70" rx="10" fill="url(#inputGrad)" stroke="#93c5fd" stroke-width="1.5"/>
   <text x="670" y="168" text-anchor="middle" font-size="14" font-weight="600" fill="#1e3a5f">Text Dataset</text>
-  <text x="670" y="188" text-anchor="middle" font-size="11" fill="#475569">LJ Speech transcripts</text>
+  <text x="670" y="188" text-anchor="middle" font-size="11" fill="#475569">DailyDialog transcripts</text>
 
   <!-- Arrow from text dataset -->
   <line x1="580" y1="175" x2="540" y2="175" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>

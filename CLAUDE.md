@@ -20,13 +20,13 @@ Qwen3-ASR auto-transcription (if REF_TEXT blank) -- load 0.6B, transcribe, unloa
 Qwen3-TTS voice feature extraction (xvector + ref audio + transcript)
     |
     v
-Qwen3-TTS synthesis -- generates ~1000 WAV samples using LJ Speech transcripts
+Qwen3-TTS synthesis -- generates ~1400 WAV samples using DailyDialog conversational transcripts
     |
     v
 Piper preprocessing -- WAVs + metadata.csv -> phoneme IDs + audio tensors (.pt)
     |
     v
-Piper VITS training -- fine-tune for 1000 epochs (default)
+Piper VITS training -- fine-tune for 4000 epochs (default)
     |
     v
 ONNX export -> deployable offline TTS model
@@ -48,16 +48,16 @@ The first 6 cells are the interactive setup (user changes project name, grants D
 | 5 | Init project state (`project.json`) -- minimal, only needs Cell 1 vars |
 | 6 | Reference audio upload/reuse |
 | 7 | Markdown: "walk away" divider |
-| 8 | Dataset & generation settings (NUM_SAMPLES, text dataset, etc.) |
+| 8 | Dataset & generation settings (NUM_SAMPLES, text dataset, emotion diversity config) |
 | 9 | Piper training settings (epochs, batch size, pretrained checkpoint) |
 | 10 | Advanced settings (model size, device, precision, sample rate) |
 | 11 | Save full config to project state |
 | 12 | Auto-transcribe reference audio with Qwen3-ASR (skipped if REF_TEXT provided or already transcribed) |
 | 13 | Load Qwen3-TTS model |
 | 14 | Pre-compute voice clone prompt (speaker features extracted once) |
-| 15 | Load text dataset from Hugging Face |
+| 15 | Load text dataset (DailyDialog) from Hugging Face. Emotion-aware: detects emotion field, balances text selection across emotion categories (caps neutral at `NEUTRAL_RATIO`), builds parallel `texts`/`text_emotions` lists |
 | 16 | Markdown: Piper section divider |
-| 17 | Generate training samples (WAVs + metadata.csv). Audio is peak-normalized to 0.95 and saved as 16-bit PCM. Clips exceeding `MAX_DURATION_S` are discarded to prevent OOM during training. |
+| 17 | Generate training samples (WAVs + metadata.csv). Audio is peak-normalized to 0.95 and saved as 16-bit PCM. Clips exceeding `MAX_DURATION_S` are discarded to prevent OOM during training. When `ENABLE_EMOTION_SAMPLING` is on, varies temperature/top_p/top_k per emotion via `EMOTION_SAMPLING_PARAMS`. Writes `emotion_metadata.csv` for reference (does not affect Piper's `metadata.csv`). |
 | 18 | Clone Piper repo and fix dependencies for Python 3.12+ |
 | 19 | Download pretrained Piper checkpoint from `rhasspy/piper-checkpoints` dataset repo on HuggingFace (auto-matches language). Must use `repo_type="dataset"` for HF Hub API calls. |
 | 20 | Preprocess dataset for Piper training |
@@ -71,15 +71,19 @@ The first 6 cells are the interactive setup (user changes project name, grants D
 Defined in Cells 1 and 8-10 as Colab form fields:
 
 - `PROJECT_NAME` / `LANGUAGE` / `DRIVE_BASE_DIR` -- project identity
-- `NUM_SAMPLES` (100-3000, default 1000) -- synthetic training samples to generate
+- `NUM_SAMPLES` (100-3000, default 1400) -- synthetic training samples to generate
 - `PIPER_MAX_EPOCHS` (100-5000, default 1000) -- training duration
 - `PIPER_BATCH_SIZE` (4-64, default 8)
 - `QWEN_MODEL_ID` -- 1.7B-Base (~8GB VRAM) or 0.6B-Base (~4GB VRAM)
 - `OUTPUT_SAMPLE_RATE` -- Qwen outputs 24kHz, resampled to 22050Hz for Piper
-- `TEXT_DATASET_ID` -- Hugging Face dataset for transcripts (default: `MikhailT/lj-speech`)
-- `MAX_TEXT_CHARS` (50-500, default 150) -- max characters per transcript sent to Qwen. Capped at 150 to keep generated audio in the 3-8s range and avoid OOM from long spectrograms during training.
+- `TEXT_DATASET_ID` -- Hugging Face dataset for transcripts (default: `daily_dialog`)
+- `MAX_TEXT_CHARS` (50-500, default 150) -- max characters per transcript sent to Qwen. Capped at 150 to keep generated audio in the 3-8s range and avoid OOM from long spectrograms during training. DailyDialog turns are typically short conversational utterances.
 - `MAX_DURATION_S` (default 10.0) -- generated audio clips longer than this are discarded. Prevents batch-padding OOM in Piper training.
 - `PIPER_PRETRAINED_CHECKPOINT` -- path within `rhasspy/piper-checkpoints` HF **dataset** repo (default: `en/en_US/lessac/medium`). Set to `none` to train from scratch.
+- `EMOTION_BALANCED` (default True) -- balance text selection across DailyDialog emotion categories instead of sequential (83% neutral) selection
+- `NEUTRAL_RATIO` (0.1-1.0, default 0.4) -- max fraction of neutral (emotion=0) texts when `EMOTION_BALANCED` is on
+- `ENABLE_EMOTION_SAMPLING` (default True) -- vary temperature/top_p/top_k per emotion category during TTS generation. Parameters defined in `EMOTION_SAMPLING_PARAMS` dict in Cell 3 (hand-tunable).
+- `EMOTION_FIELD` (default `"emotion"`) -- dataset column containing per-utterance emotion labels. Both features gracefully disable if the field is missing.
 
 ## Runtime Directory Structure (Google Drive)
 
@@ -90,6 +94,7 @@ Defined in Cells 1 and 8-10 as Colab form fields:
   dataset/
     wavs/               -- generated WAV training files
     metadata.csv        -- <basename>|<transcript> per line
+    emotion_metadata.csv -- <basename>|<emotion_id>|<emotion_name>|<transcript> (reference only)
     config.json         -- generated by Piper preprocessing
     dataset.jsonl       -- generated by Piper preprocessing
   piper/
@@ -122,5 +127,6 @@ Defined in Cells 1 and 8-10 as Colab form fields:
 - Cell 12 auto-transcribes reference audio with Qwen3-ASR-0.6B when `REF_TEXT` is blank. The `ref_text_source` field in `state["ref_audio"]` tracks origin: `"manual"` (user typed it), `"asr"` (auto-transcribed), `"pending"` (not yet transcribed), or `"none"` (ASR returned empty). On resume, if `ref_text_source == "asr"`, the saved transcript is reused without reloading ASR. Uploading new reference audio in Cell 6 resets `ref_text_source` to `"pending"`, forcing ASR to re-run.
 - Qwen3-ASR-0.6B (~2-4GB VRAM in bfloat16) is fully unloaded (del + gc.collect + torch.cuda.empty_cache) before Qwen3-TTS loads. No model coexistence needed.
 - Default training precision is fp32 (`PIPER_PRECISION = 32`), matching official Piper docs and all community guides. fp16 is untested for VITS GAN training but remains available in the dropdown. Default batch size is 8, the reliable T4 configuration accounting for Colab kernel overhead (1-2 GB). Batch 12 works on a clean GPU but OOMs on real Colab sessions where background processes consume VRAM (per Piper issues #703 and #189).
-- Training uses `--max-phoneme-ids 300` to drop sentences exceeding 300 phoneme IDs. This caps per-batch peak memory and prevents rare long sentences from causing OOM spikes (per Piper issue #703 and discussion #189). LJ Speech sentences average 70-120 phoneme IDs, so 300 drops almost nothing from the dataset while keeping peak memory well within T4 limits.
+- Training uses `--max-phoneme-ids 300` to drop sentences exceeding 300 phoneme IDs. This caps per-batch peak memory and prevents rare long sentences from causing OOM spikes (per Piper issue #703 and discussion #189). DailyDialog conversational turns are short and typically produce 30-100 phoneme IDs, so 300 drops almost nothing from the dataset while keeping peak memory well within T4 limits.
+- `generate_voice_clone()` does not support style or emotion control. The `instruct` parameter only exists on `generate_custom_voice()` (built-in speakers) and `generate_voice_design()`. Any `style_instruction` kwarg passed to `generate_voice_clone()` is silently ignored. Emotion diversity is achieved indirectly via two levers: (1) curating emotionally diverse text from DailyDialog labels, and (2) varying sampling parameters (temperature, top_p, top_k) per emotion category to produce varied prosody.
 - Cell 22 inlines env vars (`JAX_PLATFORMS=cpu`, `XLA_PYTHON_CLIENT_PREALLOCATE=false`, `TF_FORCE_GPU_ALLOW_GROWTH=true`, `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`) directly in the training command string so they always apply to the subprocess regardless of kernel state. The `os.environ` calls are kept as fallback for any imports that happen before the subprocess. `torch.set_float32_matmul_precision('medium')` is called before training to use Tensor Cores on L4/A100.
